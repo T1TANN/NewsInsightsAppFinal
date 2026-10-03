@@ -1,30 +1,49 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:client/main.dart';
+import 'package:client/models/ArticlesModel.dart';
+import 'package:client/providers/likedArticleProvider.dart';
+import 'package:client/screens/LoginPageScreen.dart';
+import 'package:client/widgets/theme.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('Article.fromJson', () {
+    test('tolerates missing and malformed fields', () {
+      final a = Article.fromJson({'title': ' Hello ', 'source': null, 'publishedAt': 'not-a-date'});
+      expect(a.title, 'Hello');
+      expect(a.sourceName, 'Unknown');
+      expect(a.publishedAt, isNull);
+      expect(a.timeAgo, '');
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    test('reads recommendation metadata', () {
+      final a = Article.fromJson({
+        'title': 'T',
+        'source': {'name': 'TOI'},
+        'publishedAt': DateTime.now().subtract(const Duration(hours: 3)).toUtc().toIso8601String(),
+        'interest': 'Space',
+        'reason': 'Because you liked X',
+      });
+      expect(a.sourceName, 'TOI');
+      expect(a.timeAgo, '3h ago');
+      expect(a.interest, 'Space');
+      expect(a.reason, 'Because you liked X');
+    });
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  testWidgets('login form validates before calling the server', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(ChangeNotifierProvider(
+      create: (_) => LikedArticlesProvider(),
+      child: MaterialApp(theme: AppTheme.lightTheme, home: const LoginPage()),
+    ));
+
+    expect(find.text('Welcome back'), findsOneWidget);
+    await tester.tap(find.text('Sign in'));
     await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Enter a valid email address'), findsOneWidget);
+    expect(find.text('Enter your password'), findsOneWidget);
   });
 }

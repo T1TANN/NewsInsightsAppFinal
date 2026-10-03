@@ -1,10 +1,16 @@
 # app/utils/auth.py
+import os
 import jwt
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 from fastapi import HTTPException
 
-# Secret key for signing and verifying tokens (replace with your actual secret)
-JWT_SECRET = "0a43376a52f64439ab95ca607fa4ed27ad3118e8e6c408f49c0554e621323aa3"
+load_dotenv()
+
+# Secret key for signing and verifying tokens, loaded from .env
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET is not set. Add it to python-backend/.env")
 
 def generate_token(data: dict, expires_delta: timedelta = None):
     """

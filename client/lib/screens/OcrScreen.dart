@@ -1,10 +1,13 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:client/screens/ResultScreen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:client/screens/ResultScreen.dart';
+import 'package:client/widgets/theme.dart';
 
+/// Scan printed text with the camera (Android/iOS), or paste text (any platform),
+/// then summarize it and check whether it's fake news with AI.
 class OcrScreen extends StatefulWidget {
   const OcrScreen({super.key});
 
@@ -13,240 +16,119 @@ class OcrScreen extends StatefulWidget {
 }
 
 class _OcrScreenState extends State<OcrScreen> {
-  bool _isPermissionGranted = false;
-  late final Future<void> _future;
-  final TextRecognizer _textRecognizer = TextRecognizer();
+  // ML Kit has no web implementation, so only create the recognizer on mobile.
+  final TextRecognizer? _recognizer = kIsWeb ? null : TextRecognizer();
   final ImagePicker _picker = ImagePicker();
-
-  @override
-  void initState() {
-    super.initState();
-    _future = _requestCameraPermission();
-  }
+  final _paste = TextEditingController();
+  bool _scanning = false;
 
   @override
   void dispose() {
-    _textRecognizer.close();
+    _recognizer?.close();
+    _paste.dispose();
     super.dispose();
+  }
+
+  Future<void> _scan() async {
+    final status = await Permission.camera.request();
+    if (!status.isGranted) {
+      if (!mounted) return;
+      showMessage(context, 'Camera permission is needed to scan text.', error: true);
+      if (status.isPermanentlyDenied) await openAppSettings();
+      return;
+    }
+    setState(() => _scanning = true);
+    try {
+      final image = await _picker.pickImage(source: ImageSource.camera, preferredCameraDevice: CameraDevice.rear);
+      if (image == null) return;
+      final result = await _recognizer!.processImage(InputImage.fromFilePath(image.path));
+      if (!mounted) return;
+      _openResult(result.text);
+    } catch (e) {
+      if (mounted) showMessage(context, 'Could not scan the image. Please try again.', error: true);
+    } finally {
+      if (mounted) setState(() => _scanning = false);
+    }
+  }
+
+  void _openResult(String text) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => ResultScreen(scanText: text)));
   }
 
   @override
   Widget build(BuildContext context) {
+    final words = _paste.text.trim().isEmpty ? 0 : _paste.text.trim().split(RegExp(r'\s+')).length;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Text Recognition',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 24,
-            color: Colors.white,
-          ),
-        ),
-        centerTitle: true,
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.blue, Colors.blueAccent],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-        elevation: 8,
-        shadowColor: Colors.black45,
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.blueGrey.shade50,
-              Colors.blueAccent.shade100,
+      appBar: AppBar(title: const Text('Scan & Verify')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(Space.md, Space.sm, Space.md, Space.xl),
+            children: [
+              if (!kIsWeb) ...[
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(Space.lg),
+                    child: Column(children: [
+                      Icon(Icons.document_scanner_outlined, size: 48, color: context.colors.primary),
+                      const SizedBox(height: Space.md),
+                      Text('Scan a newspaper or document', style: context.text.titleMedium, textAlign: TextAlign.center),
+                      const SizedBox(height: Space.xs),
+                      Text('Point your camera at printed text. AI summarizes it and checks if it is real.',
+                          style: context.text.bodyMedium, textAlign: TextAlign.center),
+                      const SizedBox(height: Space.lg),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _scanning ? null : _scan,
+                          icon: const Icon(Icons.photo_camera_outlined),
+                          label: Text(_scanning ? 'Reading text...' : 'Open camera'),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+                const SizedBox(height: Space.lg),
+                Row(children: [
+                  const Expanded(child: Divider()),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: Space.md),
+                    child: Text('or paste text', style: context.text.labelMedium),
+                  ),
+                  const Expanded(child: Divider()),
+                ]),
+                const SizedBox(height: Space.lg),
+              ] else ...[
+                Text('Paste any article, forward or social media post to summarize it and check if it is fake.', style: context.text.bodyMedium),
+                const SizedBox(height: Space.xs),
+                Text('Camera scanning is available in the Android and iOS apps.', style: context.text.labelSmall),
+                const SizedBox(height: Space.md),
+              ],
+              TextField(
+                controller: _paste,
+                minLines: 8,
+                maxLines: 16,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Text to check',
+                  alignLabelWithHint: true,
+                  hintText: 'Paste a news article, WhatsApp forward or post here...',
+                ),
+              ),
+              const SizedBox(height: Space.sm),
+              Text(words < 25 ? '$words words · at least 25 needed' : '$words words',
+                  style: context.text.labelSmall),
+              const SizedBox(height: Space.md),
+              FilledButton.icon(
+                onPressed: words < 25 ? null : () => _openResult(_paste.text.trim()),
+                icon: const Icon(Icons.auto_awesome_rounded),
+                label: const Text('Summarize & check'),
+              ),
             ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
           ),
-        ),
-        child: FutureBuilder<void>(
-          future: _future,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
-                child: CircularProgressIndicator(
-                  color: Colors.blueAccent,
-                  strokeWidth: 6,
-                ),
-              );
-            }
-            return Center(
-              child: _isPermissionGranted
-                  ? _buildScanContent()
-                  : _buildPermissionDeniedContent(),
-            );
-          },
         ),
       ),
     );
-  }
-
-  Widget _buildScanContent() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Icon(
-          Icons.camera_alt,
-          size: 80,
-          color: Colors.blueAccent,
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          'Scan Text from Image',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          'Capture an image to extract text instantly',
-          style: TextStyle(
-            fontSize: 16,
-            color: Colors.grey,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 32),
-        ElevatedButton(
-          onPressed: _scanImage,
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            elevation: 6,
-            shadowColor: Colors.black45,
-            backgroundColor: Colors.transparent,
-          ),
-          child: Ink(
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Colors.blue, Colors.blueAccent],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Container(
-              constraints: const BoxConstraints(minWidth: 120, minHeight: 50),
-              alignment: Alignment.center,
-              child: const Text(
-                'Scan Text',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPermissionDeniedContent() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.no_photography, // Replaced camera_off with no_photography
-            size: 80,
-            color: Colors.redAccent,
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'Camera Permission Denied',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Please grant camera permission in your device settings to use this feature.',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          ElevatedButton(
-            onPressed: () => openAppSettings(),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              backgroundColor: Colors.redAccent,
-            ),
-            child: const Text(
-              'Open Settings',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _requestCameraPermission() async {
-    final status = await Permission.camera.request();
-    _isPermissionGranted = status == PermissionStatus.granted;
-    if (!_isPermissionGranted && status == PermissionStatus.permanentlyDenied) {
-      await openAppSettings();
-    }
-    setState(() {});
-  }
-
-  Future<void> _scanImage() async {
-    try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera,
-        preferredCameraDevice: CameraDevice.rear,
-      );
-
-      if (image == null) return;
-
-      final file = File(image.path);
-      final inputImage = InputImage.fromFile(file);
-      final recognizedText = await _textRecognizer.processImage(inputImage);
-
-      if (!mounted) return;
-
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => ResultScreen(scanText: recognizedText.text),
-        ),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Error scanning text: $e',
-              style: const TextStyle(color: Colors.white),
-            ),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            margin: const EdgeInsets.all(10),
-          ),
-        );
-      }
-    }
   }
 }

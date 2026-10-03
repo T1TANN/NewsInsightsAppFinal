@@ -1,11 +1,11 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:client/constants/config.dart';
 import 'package:client/models/ArticlesModel.dart';
 import 'package:client/models/Category_model.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:client/services/api_client.dart';
+import 'package:client/widgets/article_card.dart';
+import 'package:client/widgets/theme.dart';
 
+/// Search across all sources, or browse by topic.
 class CategoryScreen extends StatefulWidget {
   const CategoryScreen({super.key});
 
@@ -14,7 +14,6 @@ class CategoryScreen extends StatefulWidget {
 }
 
 class CategoryScreenState extends State<CategoryScreen> {
-  // State variables
   final List<Category> categories = [
     Category(id: "1", image: "assets/image/index1.jpg", name: 'Health'),
     Category(id: "2", image: "assets/image/index2.jpg", name: 'Politics'),
@@ -26,335 +25,154 @@ class CategoryScreenState extends State<CategoryScreen> {
     Category(id: "8", image: "assets/image/index8.jpg", name: 'Fashion'),
   ];
 
-  List<Category> filteredCategories = [];
-  List<Article> newsData = [];
-  bool isLoading = false;
-  final TextEditingController searchController = TextEditingController();
-  String selectedCategory = 'Technology';
+  final _search = TextEditingController();
+  String? _query; // null = show topic grid
+  List<Article> _results = [];
+  bool _loading = false;
+  String? _error;
 
   @override
-  void initState() {
-    super.initState();
-    filteredCategories = categories;
-    fetchData(selectedCategory);
+  void dispose() {
+    _search.dispose();
+    super.dispose();
   }
 
-  Future<void> fetchData(String category) async {
-    if (!mounted) return;
-    setState(() => isLoading = true);
-
-    final String apiUrl =
-        "https://newsapi.org/v2/everything?q=$category&sources=the-times-of-india&apiKey=${Config.apiKey}";
-
+  Future<void> _run(String query) async {
+    query = query.trim();
+    if (query.isEmpty) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _query = query;
+      _loading = true;
+      _error = null;
+    });
     try {
-      final response = await http.get(Uri.parse(apiUrl));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final articles = data['articles'] as List;
-        if (mounted) {
-          setState(() {
-            newsData = articles.map((e) => Article.fromJson(e)).toList();
-            isLoading = false;
-          });
-        }
-      } else {
-        throw Exception('Failed to load news data');
-      }
-    } catch (e) {
-      print('Error fetching data: $e');
-      if (mounted) setState(() => isLoading = false);
+      final results = await Api.news(query: query);
+      if (!mounted) return;
+      setState(() => _results = results);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _clear() {
+    _search.clear();
+    setState(() {
+      _query = null;
+      _results = [];
+      _error = null;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final height = MediaQuery.of(context).size.height;
-    final themeColor = Colors.deepPurple;
-
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: const Text('Category News',
-            style: TextStyle(
-                fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-        centerTitle: true,
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.purple, Colors.deepPurpleAccent],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+        title: const Text('Discover'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(72),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(Space.md, 0, Space.md, Space.md),
+            child: TextField(
+              controller: _search,
+              textInputAction: TextInputAction.search,
+              onSubmitted: _run,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                hintText: 'Search any topic, person or place',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _search.text.isEmpty && _query == null
+                    ? null
+                    : IconButton(tooltip: 'Clear search', icon: const Icon(Icons.close_rounded), onPressed: _clear),
+              ),
             ),
           ),
         ),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(15),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.3),
-                    spreadRadius: 1,
-                    blurRadius: 5,
-                    offset: const Offset(0, 2),
-                  )
-                ],
-              ),
-              child: TextField(
-                controller: searchController,
-                decoration: InputDecoration(
-                  hintText: "Search categories...",
-                  hintStyle: TextStyle(color: Colors.grey.shade600),
-                  filled: true,
-                  fillColor: Colors.white,
-                  prefixIcon: Icon(Icons.search, color: themeColor),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(15),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 15),
-                  suffixIcon: IconButton(
-                    icon: Icon(Icons.filter_alt_rounded, color: themeColor),
-                    onPressed: () {
-                      if (searchController.text.isNotEmpty) {
-                        fetchData(searchController.text);
-                      }
-                    },
-                  ),
-                ),
-                onChanged: (text) {
-                  setState(() {
-                    filteredCategories = categories
-                        .where((category) => category.name
-                            .toLowerCase()
-                            .contains(text.toLowerCase()))
-                        .toList();
-                  });
-                },
-              ),
-            ),
-          ),
-          SizedBox(
-            height: height * 0.25,
-            child: GridView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              scrollDirection: Axis.horizontal,
-              itemCount: filteredCategories.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 1,
-                childAspectRatio: 0.8,
-                mainAxisSpacing: 16,
-              ),
-              itemBuilder: (context, index) {
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      selectedCategory = filteredCategories[index].name;
-                    });
-                    fetchData(filteredCategories[index].name);
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.2),
-                          spreadRadius: 2,
-                          blurRadius: 5,
-                          offset: const Offset(0, 3),
-                        )
-                      ],
-                    ),
-                    child: Stack(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(20),
-                          child: Image.asset(
-                            filteredCategories[index].image,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            height: double.infinity,
-                          ),
-                        ),
-                        Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.transparent,
-                                Colors.black.withOpacity(0.7)
-                              ],
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          bottom: 16,
-                          left: 16,
-                          child: Text(
-                            filteredCategories[index].name,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              shadows: [
-                                Shadow(
-                                  blurRadius: 10,
-                                  color: Colors.black87,
-                                  offset: Offset(2, 2),
-                                )
-                              ],
-                            ),
-                          ),
-                        ),
-                        if (selectedCategory == filteredCategories[index].name)
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: themeColor,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.check,
-                                  color: Colors.white, size: 18),
-                            ),
-                          )
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: isLoading
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: themeColor,
-                      strokeWidth: 2,
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    itemCount: newsData.length,
-                    itemBuilder: (context, index) {
-                      final item = newsData[index];
-                      return Container(
-                        margin: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(15),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withOpacity(0.1),
-                              spreadRadius: 1,
-                              blurRadius: 6,
-                              offset: const Offset(0, 3),
-                            )
-                          ],
-                        ),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(15),
-                          onTap: () async {
-                            final url = Uri.tryParse(item.url);
-                            if (url != null && await canLaunchUrl(url)) {
-                              await launchUrl(url);
-                            }
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(12.0),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Image.network(
-                                    item.urlToImage,
-                                    width: 100,
-                                    height: 100,
-                                    fit: BoxFit.cover,
-                                    errorBuilder:
-                                        (context, error, stackTrace) =>
-                                            Container(
-                                      width: 100,
-                                      height: 100,
-                                      color: Colors.grey.shade100,
-                                      child: Icon(Icons.image_not_supported,
-                                          color: Colors.grey.shade400),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        item.title,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.black87,
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        item.description,
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.grey.shade600,
-                                          height: 1.4,
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 12, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: themeColor,
-                                            borderRadius:
-                                                BorderRadius.circular(20),
-                                          ),
-                                          child: const Text(
-                                            'Read More',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        child: _query == null ? _topicGrid() : _resultsView(),
       ),
+    );
+  }
+
+  Widget _topicGrid() {
+    return LayoutBuilder(builder: (context, c) {
+      final columns = c.maxWidth > 900 ? 4 : c.maxWidth > 560 ? 3 : 2;
+      return GridView.builder(
+        key: const ValueKey('grid'),
+        padding: const EdgeInsets.fromLTRB(Space.md, Space.sm, Space.md, Space.xl),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: columns, mainAxisSpacing: Space.md, crossAxisSpacing: Space.md, childAspectRatio: 1.25,
+        ),
+        itemCount: categories.length,
+        itemBuilder: (_, i) {
+          final cat = categories[i];
+          return Semantics(
+            button: true,
+            label: 'Browse ${cat.name} news',
+            child: Material(
+              clipBehavior: Clip.antiAlias,
+              borderRadius: BorderRadius.circular(16),
+              child: InkWell(
+                onTap: () {
+                  _search.text = cat.name;
+                  _run(cat.name);
+                },
+                child: Stack(fit: StackFit.expand, children: [
+                  Image.asset(cat.image, fit: BoxFit.cover),
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0x00000000), Color(0xCC000000)],
+                        stops: [0.35, 1],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: Space.md, bottom: Space.md, right: Space.md,
+                    child: Text(cat.name,
+                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                  ),
+                ]),
+              ),
+            ),
+          );
+        },
+      );
+    });
+  }
+
+  Widget _resultsView() {
+    if (_loading) return const ArticleListSkeleton(key: ValueKey('loading'));
+    if (_error != null) {
+      return StateMessage(
+        key: const ValueKey('error'),
+        icon: Icons.cloud_off_rounded,
+        title: 'Search failed',
+        message: _error,
+        actionLabel: 'Try again',
+        onAction: () => _run(_query!),
+      );
+    }
+    if (_results.isEmpty) {
+      return StateMessage(
+        key: const ValueKey('empty'),
+        icon: Icons.search_off_rounded,
+        title: 'No results for "$_query"',
+        message: 'Try a broader or different search term.',
+      );
+    }
+    return ArticleFeed(
+      key: ValueKey('results-$_query'),
+      articles: _results,
+      onRefresh: () => _run(_query!),
+      header: Text('${_results.length} results for "$_query"', style: context.text.labelMedium),
     );
   }
 }

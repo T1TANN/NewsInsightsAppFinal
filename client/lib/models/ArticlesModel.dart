@@ -1,5 +1,3 @@
-import 'package:intl/intl.dart';
-
 class Article {
   final String sourceName;
   final String author;
@@ -7,12 +5,15 @@ class Article {
   final String description;
   final String url;
   final String urlToImage;
-  final String publishedAt;
+  final DateTime? publishedAt;
   final String content;
-  final String? category;
-  bool isLiked;
+  final String category;
 
-  Article({
+  /// Set on personalised recommendations: the interest it matched and why it was picked.
+  final String? interest;
+  final String? reason;
+
+  const Article({
     required this.title,
     required this.description,
     required this.url,
@@ -21,29 +22,38 @@ class Article {
     required this.sourceName,
     required this.urlToImage,
     required this.content,
-    this.category,
-    this.isLiked = false,
+    this.category = 'general',
+    this.interest,
+    this.reason,
   });
 
-  factory Article.fromJson(Map<String, dynamic> json) {
-    String dateString = json['publishedAt'] ?? '';
-    DateTime dateTime = dateString.isNotEmpty ? DateTime.parse(dateString) : DateTime.now();
-    String formattedDate = DateFormat('dd-MM-yyyy').format(dateTime);
-
-    const String defaultImageUrl =
-        'https://play-lh.googleusercontent.com/8LYEbSl48gJoUVGDUyqO5A0xKlcbm2b39S32xvm_h-8BueclJnZlspfkZmrXNFX2XQ';
-
+  factory Article.fromJson(Map<String, dynamic> json, {String? category}) {
+    final source = json['source'];
     return Article(
-      description: json['description'] ?? 'No Description',
-      title: json['title'] ?? 'No Title',
-      url: json['url'] ?? '#',
-      author: json['author'] ?? 'Unknown Author',
-      publishedAt: formattedDate,
-      sourceName: json['source']['name'] ?? 'Unknown Source', // Corrected
-      urlToImage: json['urlToImage']?.toString() ?? defaultImageUrl,
-      content: json['content'] ?? 'No Content',
-      category: json['category'] ?? 'general',
-      isLiked: false,
+      title: (json['title'] ?? '').toString().trim(),
+      description: (json['description'] ?? '').toString().trim(),
+      url: (json['url'] ?? '').toString(),
+      author: (json['author'] ?? '').toString(),
+      publishedAt: DateTime.tryParse((json['publishedAt'] ?? '').toString())?.toLocal(),
+      sourceName: (source is Map ? source['name'] : source)?.toString() ?? 'Unknown',
+      urlToImage: (json['urlToImage'] ?? '').toString(),
+      content: (json['content'] ?? '').toString(),
+      category: category ?? (json['category'] ?? 'general').toString(),
+      interest: json['interest']?.toString(),
+      reason: json['reason']?.toString(),
     );
+  }
+
+  /// "5m ago", "3h ago", "2d ago" or a date.
+  String get timeAgo {
+    final t = publishedAt;
+    if (t == null) return '';
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'Just now';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    if (d.inDays < 7) return '${d.inDays}d ago';
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${t.day} ${months[t.month - 1]} ${t.year}';
   }
 }

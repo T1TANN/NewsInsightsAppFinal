@@ -1,13 +1,10 @@
-// this is my config.dart
+// Values come from client/.env at build time:
+//   flutter run -d chrome --dart-define-from-file=.env
+// NewsAPI and Groq keys live only on the backend; the app talks to the backend alone.
 class Config {
-  static const String userApiUrl = 'http://"YOUR_WIFI_IP_ADDRESS:8000/';
-  static const String registrationUrl = "${userApiUrl}registration";
-  static const String login = '${userApiUrl}login';
-  static const String summarize = 'https://YOUR_NGROK_ENDPOINT_URL/text-summarizer/summarize/';
-  static const String apiKey = '"YOUR_API_KEY_FROM_newsapi.org"';
-  static const String getUserDetails = '${userApiUrl}getUserDetails';
-  static const String getLikedArticles = '${userApiUrl}getLikedArticles';
-  static const String recommend = '${userApiUrl}recommend';
+  static const String _apiBase =
+      String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:8000/');
+
+  /// Backend base URL, always with a trailing slash.
+  static String get apiBase => _apiBase.endsWith('/') ? _apiBase : '$_apiBase/';
 }
-
-

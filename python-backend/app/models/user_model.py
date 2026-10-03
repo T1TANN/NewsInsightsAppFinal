@@ -96,8 +96,9 @@ class UserModel:
             user = await UserModel.find_user_by_email(email)
             if user:
                 # Remove ObjectId() conversion - user["_id"] is already an ObjectId
+                # Only push if this title isn't already liked, so repeat likes don't create duplicates
                 await collection.update_one(
-                    {"_id": user["_id"]},  # <-- FIX HERE
+                    {"_id": user["_id"], "likedArticles.title": {"$ne": article_title}},
                     {"$push": {"likedArticles": {"title": article_title, "category": article_category}}}
                 )
                 return True

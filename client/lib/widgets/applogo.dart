@@ -1,102 +1,97 @@
 import 'package:flutter/material.dart';
+import 'package:client/widgets/theme.dart';
 
 class CommonLogo extends StatelessWidget {
-  const CommonLogo({super.key});
+  final double size;
+  const CommonLogo({super.key, this.size = 56});
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    
-    return Hero(
-      tag: 'app-logo',
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        child: TweenAnimationBuilder(
-          tween: Tween<double>(begin: 0.9, end: 1.0),
-          duration: const Duration(milliseconds: 800),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, child) {
-            return Transform.scale(
-              scale: value,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Icon with gradient background
-                  Container(
-                    width: screenWidth * 0.12,
-                    height: screenWidth * 0.12,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Colors.white, Colors.purpleAccent],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.article_outlined,
-                      size: 32,
-                      color: Colors.deepPurple,
-                    ),
-                  ).paddingOnly(right: 15),
-                  
-                  // Text Content
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Title with gradient text
-                      ShaderMask(
-                        shaderCallback: (bounds) => const LinearGradient(
-                          colors: [Colors.white, Colors.purpleAccent],
-                          stops: [0.4, 1.0],
-                        ).createShader(bounds),
-                        child: const Text(
-                          "News Insights",
-                          style: TextStyle(
-                            fontSize: 34,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.5,
-                          ),
-                        ),
-                      ),
-                      
-                      // Subtitle
-                      const Padding(
-                        padding: EdgeInsets.only(top: 6),
-                        child: Text(
-                          "Verified • Reliable • Fact-Checked",
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white70,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.1,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: context.colors.primary,
+          borderRadius: BorderRadius.circular(size * 0.28),
+        ),
+        child: Icon(Icons.article_rounded, size: size * 0.55, color: context.colors.onPrimary),
+      ),
+      const SizedBox(width: Space.md),
+      Flexible(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text('NewsInsights', style: context.text.headlineSmall, overflow: TextOverflow.ellipsis),
+          Text('News, summarized and personalized', style: context.text.labelMedium, overflow: TextOverflow.ellipsis),
+        ]),
+      ),
+    ]);
+  }
+}
+
+/// Centered, width-capped layout shared by the sign-in and sign-up screens.
+class AuthScaffold extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+  final bool showBack;
+
+  const AuthScaffold({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.children,
+    this.showBack = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: showBack ? AppBar() : null,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(Space.lg),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: AutofillGroup(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Align(alignment: Alignment.centerLeft, child: CommonLogo()),
+                    const SizedBox(height: Space.xl),
+                    Text(title, style: context.text.headlineMedium),
+                    const SizedBox(height: Space.xs),
+                    Text(subtitle, style: context.text.bodyMedium),
+                    const SizedBox(height: Space.lg),
+                    ...children,
+                  ],
+                ),
               ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-extension WidgetPadding on Widget {
-  Widget paddingOnly({double left = 0, double right = 0, double top = 0, double bottom = 0}) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: left,
-        right: right,
-        top: top,
-        bottom: bottom,
-      ),
-      child: this,
+class LoadingButton extends StatelessWidget {
+  final bool loading;
+  final String label;
+  final VoidCallback onPressed;
+
+  const LoadingButton({super.key, required this.loading, required this.label, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton(
+      onPressed: loading ? null : onPressed,
+      child: loading
+          ? SizedBox(
+              width: 22, height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.5, color: context.colors.onSurfaceVariant),
+            )
+          : Text(label),
     );
   }
 }
