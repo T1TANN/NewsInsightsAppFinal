@@ -15,14 +15,12 @@ class CategoryScreen extends StatefulWidget {
 
 class CategoryScreenState extends State<CategoryScreen> {
   final List<Category> categories = [
-    Category(id: "1", image: "assets/image/index1.jpg", name: 'Health'),
+    Category(id: "1", image: "assets/image/index1.jpg", name: 'National'),
     Category(id: "2", image: "assets/image/index2.jpg", name: 'Politics'),
     Category(id: "3", image: "assets/image/index3.jpg", name: 'Business'),
-    Category(id: "4", image: "assets/image/index4.jpg", name: 'Science'),
+    Category(id: "4", image: "assets/image/index4.jpg", name: 'Technology'),
     Category(id: "5", image: "assets/image/index5.jpg", name: 'Sports'),
-    Category(id: "6", image: "assets/image/index6.jpg", name: 'Technology'),
-    Category(id: "7", image: "assets/image/index7.jpg", name: 'Nature'),
-    Category(id: "8", image: "assets/image/index8.jpg", name: 'Fashion'),
+    Category(id: "6", image: "assets/image/index6.jpg", name: 'Entertainment'),
   ];
 
   final _search = TextEditingController();
@@ -82,7 +80,7 @@ class CategoryScreenState extends State<CategoryScreen> {
               onSubmitted: _run,
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
-                hintText: 'Search any topic, person or place',
+                hintText: 'Search 200,000 Indian News articles...',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: _search.text.isEmpty && _query == null
                     ? null
@@ -100,52 +98,54 @@ class CategoryScreenState extends State<CategoryScreen> {
   }
 
   Widget _topicGrid() {
-    return LayoutBuilder(builder: (context, c) {
-      final columns = c.maxWidth > 900 ? 4 : c.maxWidth > 560 ? 3 : 2;
-      return GridView.builder(
-        key: const ValueKey('grid'),
-        padding: const EdgeInsets.fromLTRB(Space.md, Space.sm, Space.md, Space.xl),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: columns, mainAxisSpacing: Space.md, crossAxisSpacing: Space.md, childAspectRatio: 1.25,
-        ),
-        itemCount: categories.length,
-        itemBuilder: (_, i) {
-          final cat = categories[i];
-          return Semantics(
-            button: true,
-            label: 'Browse ${cat.name} news',
-            child: Material(
-              clipBehavior: Clip.antiAlias,
-              borderRadius: BorderRadius.circular(16),
-              child: InkWell(
-                onTap: () {
-                  _search.text = cat.name;
-                  _run(cat.name);
-                },
-                child: Stack(fit: StackFit.expand, children: [
-                  Image.asset(cat.image, fit: BoxFit.cover),
-                  const DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Color(0x00000000), Color(0xCC000000)],
-                        stops: [0.35, 1],
-                      ),
+    return GridView.builder(
+      key: const ValueKey('grid'),
+      padding: const EdgeInsets.fromLTRB(Space.md, Space.sm, Space.md, Space.xl),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: Space.md,
+        crossAxisSpacing: Space.md,
+        childAspectRatio: 1.25,
+      ),
+      itemCount: categories.length,
+      itemBuilder: (_, i) {
+        final cat = categories[i];
+        return Semantics(
+          button: true,
+          label: 'Browse ${cat.name} news',
+          child: Material(
+            clipBehavior: Clip.antiAlias,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              onTap: () {
+                _search.text = cat.name;
+                _run(cat.name);
+              },
+              child: Stack(fit: StackFit.expand, children: [
+                Image.asset(cat.image, fit: BoxFit.cover),
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0x00000000), Color(0xCC000000)],
+                      stops: [0.35, 1],
                     ),
                   ),
-                  Positioned(
-                    left: Space.md, bottom: Space.md, right: Space.md,
-                    child: Text(cat.name,
-                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-                  ),
-                ]),
-              ),
+                ),
+                Positioned(
+                  left: Space.md,
+                  bottom: Space.md,
+                  right: Space.md,
+                  child: Text(cat.name,
+                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                ),
+              ]),
             ),
-          );
-        },
-      );
-    });
+          ),
+        );
+      },
+    );
   }
 
   Widget _resultsView() {

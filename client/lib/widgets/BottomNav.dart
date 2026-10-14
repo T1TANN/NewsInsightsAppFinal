@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:client/screens/HomeScreen.dart';
 import 'package:client/screens/RecommendScreen.dart';
-import 'package:client/screens/OcrScreen.dart';
+import 'package:client/screens/SummarizeScreen.dart';
+import 'package:client/screens/FakeNewsScreen.dart';
 import 'package:client/screens/CategoryScreen.dart';
 import 'package:client/screens/ProfileScreen.dart';
 
-/// Tab shell. Tabs are built the first time they're opened and then kept alive
-/// (IndexedStack), so switching tabs doesn't refetch data or lose scroll position.
+/// Tab shell. Mobile navigation bar with separated Summarize and Fake News sections.
+/// Tabs are built lazily on first access and preserved using IndexedStack.
 class BottomNav extends StatefulWidget {
   const BottomNav({super.key});
 
@@ -19,13 +20,36 @@ class _BottomNavState extends State<BottomNav> {
   final Set<int> _opened = {0};
 
   static const _destinations = [
-    NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
     NavigationDestination(
-        icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome_rounded), label: 'For You'),
+      icon: Icon(Icons.home_outlined),
+      selectedIcon: Icon(Icons.home_rounded),
+      label: 'Home',
+    ),
     NavigationDestination(
-        icon: Icon(Icons.document_scanner_outlined), selectedIcon: Icon(Icons.document_scanner_rounded), label: 'Scan'),
-    NavigationDestination(icon: Icon(Icons.explore_outlined), selectedIcon: Icon(Icons.explore_rounded), label: 'Discover'),
-    NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Profile'),
+      icon: Icon(Icons.auto_awesome_outlined),
+      selectedIcon: Icon(Icons.auto_awesome_rounded),
+      label: 'For You',
+    ),
+    NavigationDestination(
+      icon: Icon(Icons.short_text_rounded),
+      selectedIcon: Icon(Icons.short_text_rounded),
+      label: 'Summarize',
+    ),
+    NavigationDestination(
+      icon: Icon(Icons.fact_check_outlined),
+      selectedIcon: Icon(Icons.fact_check_rounded),
+      label: 'Fake News',
+    ),
+    NavigationDestination(
+      icon: Icon(Icons.explore_outlined),
+      selectedIcon: Icon(Icons.explore_rounded),
+      label: 'Discover',
+    ),
+    NavigationDestination(
+      icon: Icon(Icons.person_outline_rounded),
+      selectedIcon: Icon(Icons.person_rounded),
+      label: 'Profile',
+    ),
   ];
 
   Widget _tab(int i) {
@@ -36,8 +60,10 @@ class _BottomNavState extends State<BottomNav> {
       case 1:
         return RecommendationScreen(active: _index == 1);
       case 2:
-        return const OcrScreen();
+        return const SummarizeScreen();
       case 3:
+        return const FakeNewsScreen();
+      case 4:
         return const CategoryScreen();
       default:
         return const Profile();
@@ -47,7 +73,10 @@ class _BottomNavState extends State<BottomNav> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _index, children: List.generate(_destinations.length, _tab)),
+      body: IndexedStack(
+        index: _index,
+        children: List.generate(_destinations.length, _tab),
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         destinations: _destinations,

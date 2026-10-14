@@ -1,0 +1,31 @@
+# Environment and Secrets
+.env
+**/.env
+*.env.local
+
+# Database and Generated Caches
+python-backend/data/
+*.db
+*.sqlite3
+
+# Python Virtual Environments & Caches
+python-backend/venv/
+**/__pycache__/
+*.py[cod]
+
+# Logs
+*.log
+app.log
+
+# Flutter & Dart Build Outputs
+client/build/
+client/.dart_tool/
+.dart_tool/
+build/
+*.cache.dill*
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

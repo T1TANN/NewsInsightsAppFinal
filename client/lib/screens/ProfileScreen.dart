@@ -63,7 +63,7 @@ class _ProfileState extends State<Profile> {
     final liked = provider.liked.reversed.toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(title: const Text('Profile & Settings')),
       body: RefreshIndicator(
         onRefresh: () async {
           await Future.wait([_load(), provider.refreshLikes()]);

@@ -1,74 +1,96 @@
 # app/services/verify_service.py
-"""Fake news detection.
+"""Fake news classification service.
 
-Pipeline:
-  1. Get the article text (from the URL, or pasted/scanned text).
-  2. LLM extracts the key factual claims and a search query.
-  3. Search NewsAPI for coverage of the same story by other outlets (corroboration).
-  4. LLM weighs the writing style, claims and corroboration and predicts a verdict
-     with a credibility score, the signals behind it and a per-claim assessment.
+Powered by a trained PassiveAggressiveClassifier model and TF-IDF Vectorizer
+trained on the Indian News Dataset (2 Lakh records), augmented with linguistic
+feature analysis and archive corroboration.
 """
 import logging
-from datetime import datetime, timezone
+import math
+import os
+import pickle
+import re
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
-
 from app.services.article_extractor import extract_article_text
-from app.services.llm_service import llm, LLMError
-from app.services.news_service import news_service, NewsServiceError
+from app.services.news_service import news_service
 from app.services.summarize_service import clean_text
 
 logger = logging.getLogger(__name__)
 
-MAX_TEXT_CHARS = 12000
-MAX_EVIDENCE = 8
-
 VERDICTS = {
-    "likely_real": "Likely real",
+    "likely_real": "Likely Real",
     "unverified": "Unverified",
-    "misleading": "Possibly misleading",
-    "likely_fake": "Likely fake",
+    "misleading": "Possibly Misleading",
+    "likely_fake": "Likely Fake",
 }
 
-CLAIMS_PROMPT = """You prepare a news article for fact-checking.
-Extract the 2-4 most important checkable factual claims (who did what, numbers, dates, events).
-Also write a NewsAPI search query of 3-5 plain keywords (names, places, event) that would find
-OTHER outlets' reports of the same story. No quotes or boolean operators.
-Return JSON: {"claims": ["..."], "query": "..."}"""
+# Known reputable news sources
+TRUSTED_SOURCES = {
+    "the hindu", "hindustan times", "business standard", "indian express",
+    "ndtv", "times of india", "reuters", "press trust of india", "pti",
+    "ani", "bbc", "the economic times", "livemint", "dd news", "all india radio"
+}
 
-VERDICT_PROMPT = """You are a careful fact-checking assistant that predicts whether a news item is real or fake.
-You receive the ARTICLE, its key CLAIMS, and REPORTS from other outlets found by a news search
-(possibly empty or only loosely related).
 
-Judge using these signals:
-- Corroboration: do independent outlets report the same specific facts? Contradictions?
-- Specificity: named sources, verifiable details, dates and places vs vague attributions.
-- Language: sensational, emotional or clickbait wording, ALL CAPS, urgency, calls to share.
-- Plausibility and internal consistency of the claims.
-- Source: is the publisher a known news organisation? (Only if the source is given.)
+class ModelLoader:
+    """Safely loads and caches the scikit-learn model and TF-IDF vectorizer."""
 
-Rules:
-- Base the verdict on the evidence given. Your own knowledge may be outdated: never call a
-  recent event fake just because you have not heard of it - lack of coverage means "unverified".
-- "likely_fake" needs strong evidence: contradicted by reports, fabricated-looking details or
-  classic hoax patterns. "misleading" = real events but exaggerated, missing context or a
-  headline the body does not support.
-- Be calibrated: say "unverified" when the evidence is thin.
+    _instance = None
 
-Return JSON with exactly these keys:
-  "verdict": one of "likely_real", "unverified", "misleading", "likely_fake",
-  "credibility_score": integer 0-100 (100 = highly credible),
-  "confidence": "low" | "medium" | "high",
-  "summary": 2-3 sentences explaining the verdict in plain English,
-  "signals": array of 3-6 objects {"label": short name, "detail": one sentence,
-             "impact": "positive" | "negative" | "neutral"},
-  "claims": array of objects {"claim": the claim, "status": "supported" | "unsupported" |
-            "contradicted" | "unverifiable", "note": one short sentence}.
-            supported = a REPORT confirms it; contradicted = a REPORT says otherwise;
-            unsupported = implausible or no sign of it where coverage would be expected;
-            unverifiable = plausible but no report covers it,
-  "supporting_reports": array of report numbers (integers) that cover the same story."""
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(ModelLoader, cls).__new__(cls)
+            cls._instance._load()
+        return cls._instance
+
+    def _load(self):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        backend_dir = os.path.dirname(os.path.dirname(current_dir))
+        workspace_dir = os.path.dirname(backend_dir)
+
+        # Look in workspace root then backend root
+        model_paths = [
+            os.path.join(workspace_dir, "fake_news_classifier_model.pkl"),
+            os.path.join(backend_dir, "fake_news_classifier_model.pkl"),
+        ]
+        vec_paths = [
+            os.path.join(workspace_dir, "tfidf_vectorizer.pkl"),
+            os.path.join(backend_dir, "tfidf_vectorizer.pkl"),
+        ]
+
+        self.model = None
+        self.vectorizer = None
+        self.vocabulary_rev = {}
+
+        for p in model_paths:
+            if os.path.exists(p):
+                try:
+                    with open(p, "rb") as f:
+                        self.model = pickle.load(f)
+                    logger.info(f"Loaded fake news model from {p}")
+                    break
+                except Exception as e:
+                    logger.error(f"Error loading model from {p}: {e}")
+
+        for p in vec_paths:
+            if os.path.exists(p):
+                try:
+                    with open(p, "rb") as f:
+                        self.vectorizer = pickle.load(f)
+                    self.vocabulary_rev = {v: k for k, v in self.vectorizer.vocabulary_.items()}
+                    logger.info(f"Loaded TF-IDF vectorizer from {p}")
+                    break
+                except Exception as e:
+                    logger.error(f"Error loading vectorizer from {p}: {e}")
+
+        if not self.model or not self.vectorizer:
+            logger.warning("Classifier or vectorizer could not be loaded!")
+
+
+_loader = ModelLoader()
 
 
 def _domain(url: str) -> str:
@@ -76,99 +98,234 @@ def _domain(url: str) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
-def _find_coverage(query: str, exclude_url: str) -> list:
-    """Search for other outlets' reports; relax the query if it is too specific."""
-    words = query.split()
-    attempts = [words[:5], words[:3], words[:2]]
-    exclude = _domain(exclude_url)
-    for attempt in attempts:
-        if not attempt:
-            continue
-        try:
-            results = news_service.search(" ".join(attempt), page_size=20)
-        except NewsServiceError as e:
-            logger.warning(f"Coverage search failed: {e}")
-            return []
-        others = [r for r in results if r["url"] != exclude_url and (_domain(r["url"]) != exclude or not exclude)]
-        if others:
-            return others[:MAX_EVIDENCE]
-    return []
+def _extract_claims(text: str) -> List[str]:
+    """Extracts 2-4 candidate factual statements from the body."""
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if len(s.strip()) > 20]
+    return sentences[:4] if sentences else [text[:150]]
 
 
-def verify(text: str = "", url: str = "", title: str = "", description: str = "",
-           source: str = "") -> dict:
+def verify(
+    text: str = "",
+    url: str = "",
+    title: str = "",
+    description: str = "",
+    source: str = ""
+) -> dict:
+    """Performs fake news classification using the PassiveAggressive ML model & TF-IDF vectorizer."""
     body = clean_text(text or "")
     if not body and url:
         body = clean_text(extract_article_text(url))
-        if len(body.split()) < 60:
+        if len(body.split()) < 30:
             body = clean_text("\n".join(x for x in (title, description) if x))
+
     if title and title not in body[:300]:
-        body = f"{title}\n\n{body}"
-    if len(body.split()) < 12:
-        raise HTTPException(status_code=400, detail="Not enough text to check. Paste at least a sentence or two.")
-    body = body[:MAX_TEXT_CHARS]
+        body = f"{title}\n\n{body}".strip()
 
-    try:
-        prep = llm.chat_json(CLAIMS_PROMPT, f"ARTICLE:\n{body}", max_tokens=500)
-        claims = [str(c).strip() for c in prep.get("claims", []) if str(c).strip()][:4]
-        query = str(prep.get("query") or title or " ".join(body.split()[:6])).strip()
-
-        coverage = _find_coverage(query, url)
-        reports = "\n".join(
-            f"[{i + 1}] {r['source']['name']} ({r['publishedAt'][:10]}): {r['title']} - {r['description'][:200]}"
-            for i, r in enumerate(coverage)
-        ) or "(no other reports found)"
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        prompt = (
-            f"TODAY: {today}\nSOURCE: {source or _domain(url) or 'unknown (pasted or scanned text)'}\n\n"
-            f"ARTICLE:\n{body}\n\nCLAIMS:\n" + "\n".join(f"- {c}" for c in claims) + f"\n\nREPORTS:\n{reports}"
+    if len(body.split()) < 5:
+        raise HTTPException(
+            status_code=400,
+            detail="Not enough text to analyze. Please provide at least a sentence or headline."
         )
-        result = llm.chat_json(VERDICT_PROMPT, prompt, max_tokens=1500)
-    except LLMError as e:
-        logger.error(f"Verification failed: {e}")
-        raise HTTPException(status_code=502, detail="The AI fact-checker is unavailable right now. Please try again.")
 
-    verdict = result.get("verdict") if result.get("verdict") in VERDICTS else "unverified"
-    try:
-        score = max(0, min(100, int(result.get("credibility_score", 50))))
-    except (TypeError, ValueError):
-        score = 50
-    confidence = result.get("confidence") if result.get("confidence") in ("low", "medium", "high") else "low"
+    clean_source = (source or _domain(url) or "User Submission").strip()
+    full_input = f"{title} {description} {body}".strip()
 
-    supporting = set()
-    for n in result.get("supporting_reports", []) or []:
+    # Model inference
+    model = _loader.model
+    vec = _loader.vectorizer
+
+    if not model or not vec:
+        raise HTTPException(
+            status_code=500,
+            detail="Fake news ML classifier model is not loaded."
+        )
+
+    X = vec.transform([full_input])
+    raw_pred = int(model.predict(X)[0])  # 0 = Real, 1 = Fake
+    decision_val = float(model.decision_function(X)[0])  # > 0 => Fake, < 0 => Real
+
+    # Sigmoid mapping from decision value to credibility probability
+    # When decision_val is negative (Real), prob_fake is low => credibility is high
+    prob_fake = 1.0 / (1.0 + math.exp(-decision_val))
+    credibility_score = int(round((1.0 - prob_fake) * 100))
+
+    # Linguistic analysis
+    signals = []
+    
+    # 1. Active TF-IDF features that influenced the model
+    coefs = model.coef_[0]
+    cx = X.tocoo()
+    fake_indicators = []
+    real_indicators = []
+
+    for col in cx.col:
+        word = _loader.vocabulary_rev.get(col, "")
+        weight = coefs[col]
+        if weight > 0.05:
+            fake_indicators.append((word, weight))
+        elif weight < -0.05:
+            real_indicators.append((word, weight))
+
+    fake_indicators.sort(key=lambda x: x[1], reverse=True)
+    real_indicators.sort(key=lambda x: x[1])
+
+    if raw_pred == 1:
+        # Fake classification
+        top_terms = [w for w, _ in fake_indicators[:4]]
+        if top_terms:
+            signals.append({
+                "label": "Suspicious Vocabulary",
+                "detail": f"Model detected terms correlated with fabricated news: {', '.join(top_terms)}.",
+                "impact": "negative"
+            })
+        signals.append({
+            "label": "ML Classification",
+            "detail": f"Passive-Aggressive Classifier flagged content as Likely Fake (decision margin: {decision_val:.2f}).",
+            "impact": "negative"
+        })
+    else:
+        # Real classification
+        top_terms = [w for w, _ in real_indicators[:4]]
+        if top_terms:
+            signals.append({
+                "label": "Journalistic Phrasing",
+                "detail": f"Model identified standard reporting vocabulary: {', '.join(top_terms)}.",
+                "impact": "positive"
+            })
+        signals.append({
+            "label": "ML Classification",
+            "detail": f"Passive-Aggressive Classifier verified content as Likely Real (decision margin: {decision_val:.2f}).",
+            "impact": "positive"
+        })
+
+    # 2. Check for sensationalism (all caps, exclamation marks, clickbait)
+    exclamations = full_input.count("!")
+    caps_words = [w for w in full_input.split() if w.isupper() and len(w) > 2]
+    if exclamations >= 2 or len(caps_words) >= 3:
+        signals.append({
+            "label": "Sensational Formatting",
+            "detail": f"Detected high intensity formatting ({exclamations} exclamation marks, {len(caps_words)} ALL-CAPS words).",
+            "impact": "negative"
+        })
+        credibility_score = max(5, credibility_score - 15)
+
+    # 3. Source credibility check
+    source_lower = clean_source.lower()
+    is_trusted = any(ts in source_lower for ts in TRUSTED_SOURCES)
+    if is_trusted:
+        signals.append({
+            "label": "Established Publisher",
+            "detail": f"Article source '{clean_source}' is recognized as an established news outlet.",
+            "impact": "positive"
+        })
+        credibility_score = min(98, credibility_score + 10)
+    elif "unverified" in source_lower or "whatsapp" in source_lower or "social" in source_lower:
+        signals.append({
+            "label": "Unverified Origin",
+            "detail": "Content originates from an unverified source or social circulation.",
+            "impact": "negative"
+        })
+        credibility_score = max(5, credibility_score - 10)
+
+    # Corroboration search in the 2 Lakh dataset
+    # Extract search query from title or first few key words
+    search_words = [w for w in re.sub(r"[^\w\s]", "", title or body).split() if len(w) > 3][:4]
+    search_query = " ".join(search_words)
+    coverage = []
+    has_archive_corroboration = False
+
+    if search_query:
         try:
-            if 1 <= int(n) <= len(coverage):
-                supporting.add(int(n) - 1)
-        except (TypeError, ValueError):
-            pass
+            matches = news_service.search(search_query, page_size=4)
+            for m in matches:
+                # If matched news is from a real outlet (label == 0)
+                is_real_match = (m.get("label") == 0)
+                if is_real_match:
+                    has_archive_corroboration = True
+                coverage.append({
+                    "title": m.get("title", ""),
+                    "source": (m.get("source") or {}).get("name", "Archive Record"),
+                    "url": m.get("url", ""),
+                    "publishedAt": m.get("publishedAt", ""),
+                    "supports": is_real_match
+                })
+        except Exception as e:
+            logger.warning(f"Archive search failed: {e}")
 
-    signals = [
-        {"label": str(s.get("label", "")).strip(), "detail": str(s.get("detail", "")).strip(),
-         "impact": s.get("impact") if s.get("impact") in ("positive", "negative", "neutral") else "neutral"}
-        for s in result.get("signals", []) if isinstance(s, dict) and s.get("label")
-    ][:6]
-    checked = [
-        {"claim": str(c.get("claim", "")).strip(),
-         "status": c.get("status") if c.get("status") in ("supported", "unsupported", "contradicted", "unverifiable")
-         else "unverifiable",
-         "note": str(c.get("note", "")).strip()}
-        for c in result.get("claims", []) if isinstance(c, dict) and c.get("claim")
-    ][:4]
+    if has_archive_corroboration:
+        signals.append({
+            "label": "Archive Corroboration",
+            "detail": "Found matching topic reports from verified outlets in the 200,000 Indian News archive.",
+            "impact": "positive"
+        })
+        if raw_pred == 0:
+            credibility_score = max(credibility_score, 75)
+    elif raw_pred == 1 and not coverage:
+        signals.append({
+            "label": "Lack of Mainstream Coverage",
+            "detail": "No corroborating reports found across national news databases.",
+            "impact": "negative"
+        })
+        credibility_score = min(credibility_score, 30)
+
+    # Final verdict assignment
+    if credibility_score >= 65:
+        verdict = "likely_real"
+        confidence = "high" if abs(decision_val) > 0.8 else "medium"
+        summary = (
+            f"This content is classified as Likely Real with a credibility score of {credibility_score}/100. "
+            f"The ML model found standard journalistic language patterns consistent with verified reporting."
+        )
+    elif credibility_score <= 40:
+        verdict = "likely_fake"
+        confidence = "high" if abs(decision_val) > 0.8 else "medium"
+        summary = (
+            f"This content is classified as Likely Fake with a credibility score of {credibility_score}/100. "
+            f"The ML model identified language and vocabulary patterns commonly found in unverified viral claims."
+        )
+    else:
+        verdict = "misleading" if exclamations > 1 else "unverified"
+        confidence = "medium"
+        summary = (
+            f"This content received a borderline credibility score of {credibility_score}/100. "
+            f"Evidence is mixed or insufficient to confirm full authenticity; treat with caution."
+        )
+
+    # Claims assessment
+    candidate_claims = _extract_claims(body)
+    claims = []
+    for c in candidate_claims:
+        if verdict == "likely_fake":
+            status = "unsupported"
+            note = "Correlated with unverified phrasing in classifier training data."
+        elif verdict == "likely_real":
+            status = "supported" if has_archive_corroboration else "unverifiable"
+            note = "Consistent with verified news style."
+        else:
+            status = "unverifiable"
+            note = "Requires independent official confirmation."
+
+        claims.append({
+            "claim": c,
+            "status": status,
+            "note": note
+        })
 
     return {
         "status": True,
         "verdict": verdict,
         "label": VERDICTS[verdict],
-        "credibility_score": score,
+        "credibility_score": credibility_score,
         "confidence": confidence,
-        "summary": str(result.get("summary", "")).strip(),
-        "signals": signals,
-        "claims": checked,
-        "coverage": [
-            {"title": r["title"], "source": r["source"]["name"], "url": r["url"],
-             "publishedAt": r["publishedAt"], "supports": i in supporting}
-            for i, r in enumerate(coverage)
-        ],
-        "query": query,
+        "summary": summary,
+        "signals": signals[:6],
+        "claims": claims[:4],
+        "coverage": coverage,
+        "query": search_query,
+        "model_info": {
+            "model": "PassiveAggressiveClassifier",
+            "vectorizer": "TF-IDF (1.6.1)",
+            "dataset": "Indian News 2 Lakh Dataset",
+            "decision_score": round(decision_val, 4)
+        }
     }

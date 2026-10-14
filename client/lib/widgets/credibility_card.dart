@@ -75,7 +75,7 @@ class _CredibilityPanelState extends State<CredibilityPanel> {
           Row(children: [
             Icon(Icons.fact_check_outlined, color: context.colors.primary, size: 20),
             const SizedBox(width: Space.sm),
-            Expanded(child: Text('Fake news check', style: context.text.titleSmall?.copyWith(color: context.colors.primary))),
+            Expanded(child: Text('ML Fake News Check', style: context.text.titleSmall?.copyWith(color: context.colors.primary))),
             if (r != null)
               IconButton(tooltip: 'Check again', onPressed: _loading ? null : _run, icon: Icon(Icons.refresh_rounded, color: context.muted)),
           ]),
@@ -87,15 +87,15 @@ class _CredibilityPanelState extends State<CredibilityPanel> {
           else ...[
             Text(
               _error ??
-                  'AI predicts whether this story is real, misleading or fake by checking its claims, '
-                      'its language and how other outlets cover it.',
+                  'Passive-Aggressive Machine Learning model (trained on 200,000 Indian News records) '
+                      'analyzes vocabulary features, linguistic patterns, and archive corroboration.',
               style: context.text.bodyMedium?.copyWith(color: _error != null ? context.colors.error : null),
             ),
             const SizedBox(height: Space.md),
             OutlinedButton.icon(
               onPressed: _run,
               icon: Icon(_error != null ? Icons.refresh_rounded : Icons.fact_check_outlined),
-              label: Text(_error != null ? 'Try again' : 'Check if this is real'),
+              label: Text(_error != null ? 'Try again' : 'Check with ML Model'),
             ),
           ],
         ]),
@@ -113,7 +113,7 @@ class _CredibilityPanelState extends State<CredibilityPanel> {
     return Semantics(
       label: 'Checking credibility',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Extracting claims and searching other outlets...', style: context.text.labelMedium),
+        Text('Extracting TF-IDF features and classifying with ML model...', style: context.text.labelMedium),
         const SizedBox(height: Space.md),
         Shimmer.fromColors(
           baseColor: base,

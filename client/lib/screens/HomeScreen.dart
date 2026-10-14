@@ -12,7 +12,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class HomeScreenState extends State<HomeScreen> {
-  static const topics = ['Top', 'India', 'Business', 'Technology', 'Sports', 'Science', 'Health', 'Entertainment'];
+  static const topics = ['Top', 'National', 'Business', 'Technology', 'Sports', 'Entertainment', 'Politics'];
 
   String _topic = topics.first;
   final Map<String, List<Article>> _cache = {};
@@ -53,13 +53,17 @@ class HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final articles = _cache[_topic];
+
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 64,
-        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('NewsInsights', style: context.text.headlineSmall?.copyWith(color: context.colors.primary)),
-          Text(_today(), style: context.text.labelSmall),
-        ]),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('NewsInsights', style: context.text.headlineSmall?.copyWith(color: context.colors.primary)),
+            Text(_today(), style: context.text.labelSmall),
+          ],
+        ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(56),
           child: SizedBox(

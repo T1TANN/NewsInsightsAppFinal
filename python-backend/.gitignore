@@ -21,6 +21,11 @@ app.log
 .vscode/
 .idea/
 
+# Database files & generated caches
+data/
+*.db
+*.sqlite3
+
 # OS-generated files
 .DS_Store
 Thumbs.db
